@@ -1,80 +1,184 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LoaderCircle, Rocket, Send, Sparkles } from "lucide-react";
-import type { IdeaRecord } from "@/types/idea";
+import { Rocket, Sparkles } from "lucide-react";
 import { IdeaForm } from "@/frontend/dashboard/idea-form";
 import { IdeaHistory } from "@/frontend/dashboard/idea-history";
+import { AnalysisStatusPanel } from "@/frontend/dashboard/analysis-status-panel";
+import type { AnalysisJob, IdeaRecord } from "@/types/idea";
 
 type IdeasResponse = {
   ideas: IdeaRecord[];
 };
 
-type CreateIdeaResponse = {
-  idea: IdeaRecord;
+type CreateIdeaJobResponse = {
+  job: AnalysisJob;
 };
+
+type AnalysisJobResponse = {
+  job: AnalysisJob;
+};
+
+const HISTORY_POLL_INTERVAL_MS = 4000;
+const JOB_POLL_INTERVAL_MS = 700;
+const STATUS_RESET_DELAY_MS = 450;
 
 export function VibeDashboard() {
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeJob, setActiveJob] = useState<AnalysisJob | null>(null);
+  const [displayProgress, setDisplayProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [formResetKey, setFormResetKey] = useState(0);
 
-  useEffect(() => {
-    async function loadIdeas() {
-      try {
-        const response = await fetch("/api/ideas", {
-          method: "GET",
-          cache: "no-store"
-        });
-
-        if (!response.ok) {
-          throw new Error("Failed to load idea history.");
-        }
-
-        const data = (await response.json()) as IdeasResponse;
-        setIdeas(data.ideas);
-      } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : "Failed to load idea history."
-        );
-      } finally {
-        setIsLoadingHistory(false);
-      }
-    }
-
-    void loadIdeas();
-  }, []);
-
-  async function handleIdeaSubmit(concept: string) {
-    setIsSubmitting(true);
-    setErrorMessage(null);
-
+  async function refreshIdeas() {
     try {
-      const response = await fetch("/api/ideas", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ concept })
-      });
-
-      const data = (await response.json()) as CreateIdeaResponse | { error: string };
-
-      if (!response.ok || !("idea" in data)) {
-        throw new Error("error" in data ? data.error : "Failed to analyze the idea.");
-      }
-
-      setIdeas((currentIdeas) => [data.idea, ...currentIdeas]);
+      const nextIdeas = await fetchIdeas();
+      setIdeas(nextIdeas);
     } catch (error) {
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to analyze the idea."
+        error instanceof Error ? error.message : "Failed to load idea history."
       );
-      throw error;
-    } finally {
-      setIsSubmitting(false);
     }
   }
+
+  async function pollActiveJob(jobId: string) {
+    try {
+      const nextJob = await fetchIdeaJob(jobId);
+      setActiveJob(nextJob);
+
+      if (nextJob.status === "completed") {
+        const nextIdeas = await fetchIdeas();
+        setIdeas(nextIdeas);
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to refresh analysis status."
+      );
+    }
+  }
+
+  async function handleIdeaSubmit(concept: string) {
+    setErrorMessage(null);
+    setDisplayProgress(0);
+
+    try {
+      const createdJob = await createIdeaJob(concept);
+      setActiveJob(createdJob);
+
+      if (createdJob.status === "completed") {
+        const nextIdeas = await fetchIdeas();
+        setIdeas(nextIdeas);
+      }
+    } catch (error) {
+      setActiveJob(null);
+      setDisplayProgress(0);
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to enqueue the idea."
+      );
+      throw error;
+    }
+  }
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadInitialIdeas() {
+      try {
+        const nextIdeas = await fetchIdeas();
+
+        if (isMounted) {
+          setIdeas(nextIdeas);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "Failed to load idea history."
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingHistory(false);
+        }
+      }
+    }
+
+    void loadInitialIdeas();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void refreshIdeas();
+    }, HISTORY_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeJob || activeJob.status === "completed") {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void pollActiveJob(activeJob.id);
+    }, JOB_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activeJob]);
+
+  useEffect(() => {
+    if (!activeJob) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setDisplayProgress((currentProgress) => {
+        const targetProgress =
+          activeJob.status === "completed"
+            ? 100
+            : Math.max(activeJob.progress, currentProgress);
+
+        if (Math.abs(targetProgress - currentProgress) < 0.5) {
+          return targetProgress;
+        }
+
+        const step =
+          activeJob.status === "completed"
+            ? Math.max(1.8, (targetProgress - currentProgress) * 0.18)
+            : Math.max(0.4, (targetProgress - currentProgress) * 0.08);
+
+        return Math.min(targetProgress, currentProgress + step);
+      });
+    }, 40);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activeJob]);
+
+  useEffect(() => {
+    if (!activeJob || activeJob.status !== "completed" || displayProgress < 100) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setActiveJob(null);
+      setDisplayProgress(0);
+      setFormResetKey((currentValue) => currentValue + 1);
+    }, STATUS_RESET_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeJob, displayProgress]);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(253,224,71,0.22),_transparent_28%),linear-gradient(135deg,_#f5f1e8_0%,_#f7d9a3_48%,_#d5e7df_100%)] px-4 py-10 text-stone-950 sm:px-6 lg:px-8">
@@ -92,16 +196,20 @@ export function VibeDashboard() {
                   Startup Vibe Checker
                 </h1>
                 <p className="max-w-2xl text-base leading-7 text-stone-700 sm:text-lg">
-                  Drop in a startup pitch and get an instant vibe score with a market
-                  category. The dashboard keeps the latest concepts in memory so you
-                  can compare what deserves a second look.
+                  Submit a startup pitch into the analysis queue, watch the live
+                  progress, and publish results to the shared history only after the
+                  backend finishes the simulated AI pass.
                 </p>
               </div>
 
-              <IdeaForm isSubmitting={isSubmitting} onSubmit={handleIdeaSubmit} />
+              <IdeaForm
+                key={formResetKey}
+                isLocked={activeJob !== null}
+                onSubmit={handleIdeaSubmit}
+              />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+            <div className="grid gap-4 lg:grid-rows-[auto_1fr]">
               <div className="rounded-[1.75rem] bg-stone-950 p-6 text-stone-50">
                 <div className="flex items-center justify-between">
                   <span className="text-sm uppercase tracking-[0.28em] text-stone-400">
@@ -113,30 +221,16 @@ export function VibeDashboard() {
                   {ideas.length}
                 </p>
                 <p className="mt-3 text-sm text-stone-400">
-                  In-memory history of startup ideas analyzed during this session.
+                  Completed analyses visible to every connected session after the
+                  server finishes processing.
                 </p>
               </div>
 
-              <div className="rounded-[1.75rem] border border-stone-900/10 bg-white/70 p-6">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm uppercase tracking-[0.28em] text-stone-500">
-                    Status
-                  </span>
-                  {isSubmitting ? (
-                    <LoaderCircle className="h-5 w-5 animate-spin text-stone-700" />
-                  ) : (
-                    <Send className="h-5 w-5 text-stone-700" />
-                  )}
-                </div>
-                <p className="mt-6 text-2xl font-semibold tracking-[-0.04em]">
-                  {isSubmitting ? "Analyzing concept..." : "Ready for the next pitch"}
-                </p>
-                <p className="mt-3 text-sm leading-6 text-stone-600">
-                  {isSubmitting
-                    ? "The backend is scoring the current concept and assigning a market category."
-                    : "Submit a concise pitch to generate a score from 1 to 10 and save it to history."}
-                </p>
-              </div>
+              <AnalysisStatusPanel
+                activeJob={activeJob}
+                displayProgress={displayProgress}
+                isLoadingHistory={isLoadingHistory}
+              />
             </div>
           </div>
         </section>
@@ -151,4 +245,53 @@ export function VibeDashboard() {
       </div>
     </main>
   );
+}
+
+async function fetchIdeas(): Promise<IdeaRecord[]> {
+  const response = await fetch("/api/ideas", {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load idea history.");
+  }
+
+  const data = (await response.json()) as IdeasResponse;
+  return data.ideas;
+}
+
+async function createIdeaJob(concept: string): Promise<AnalysisJob> {
+  const response = await fetch("/api/ideas", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ concept })
+  });
+
+  const data = (await response.json()) as CreateIdeaJobResponse | { error: string };
+
+  if (!response.ok || !("job" in data)) {
+    throw new Error("error" in data ? data.error : "Failed to enqueue the idea.");
+  }
+
+  return data.job;
+}
+
+async function fetchIdeaJob(jobId: string): Promise<AnalysisJob> {
+  const response = await fetch(`/api/ideas/jobs/${jobId}`, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  const data = (await response.json()) as AnalysisJobResponse | { error: string };
+
+  if (!response.ok || !("job" in data)) {
+    throw new Error(
+      "error" in data ? data.error : "Failed to refresh analysis status."
+    );
+  }
+
+  return data.job;
 }

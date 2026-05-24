@@ -36,14 +36,22 @@ const CATEGORY_KEYWORDS: Array<{
 
 export function analyzeConcept(concept: string): VibeAnalysis {
   const normalizedConcept = concept.trim().toLowerCase();
-  const words = normalizedConcept.split(/\s+/).filter(Boolean);
-  const wordCount = words.length;
+  const wordCount = countConceptWords(normalizedConcept);
 
   return {
     vibeScore: Math.min(10, Math.max(1, wordCount)),
     marketCategory: detectMarketCategory(normalizedConcept),
     wordCount
   };
+}
+
+export function countConceptWords(concept: string): number {
+  return concept.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export function estimateAnalysisDurationMs(concept: string): number {
+  const wordCount = countConceptWords(concept);
+  return Math.min(14000, 2200 + wordCount * 220);
 }
 
 function detectMarketCategory(concept: string): MarketCategory {

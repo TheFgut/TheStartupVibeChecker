@@ -14,10 +14,25 @@ export type VibeAnalysis = {
   wordCount: number;
 };
 
+export type AnalysisJobStatus = "queued" | "processing" | "completed";
+
 export type IdeaRecord = {
   id: string;
   concept: string;
   vibeScore: number;
   marketCategory: MarketCategory;
   createdAt: string;
+};
+
+export type AnalysisJob = {
+  id: string;
+  concept: string;
+  status: AnalysisJobStatus;
+  progress: number;
+  queuePosition: number | null;
+  processingDurationMs: number;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  idea: IdeaRecord | null;
 };

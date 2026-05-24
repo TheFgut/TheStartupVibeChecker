@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createIdea, getIdeas } from "@/backend/ideas/idea-service";
+import { createIdeaAnalysisJob, getIdeas } from "@/backend/ideas/idea-service";
 
 type CreateIdeaRequest = {
   concept?: unknown;
@@ -12,7 +12,19 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as CreateIdeaRequest;
+  let body: CreateIdeaRequest;
+
+  try {
+    body = (await request.json()) as CreateIdeaRequest;
+  } catch {
+    return NextResponse.json(
+      {
+        error: "Invalid JSON payload."
+      },
+      { status: 400 }
+    );
+  }
+
   const concept = typeof body.concept === "string" ? body.concept.trim() : "";
 
   if (!concept) {
@@ -24,12 +36,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const idea = createIdea(concept);
+  const job = createIdeaAnalysisJob(concept);
 
   return NextResponse.json(
     {
-      idea
+      job
     },
-    { status: 201 }
+    { status: 202 }
   );
 }
