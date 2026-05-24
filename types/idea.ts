@@ -11,8 +11,11 @@ export type MarketCategory =
 export type VibeAnalysis = {
   vibeScore: number;
   marketCategory: MarketCategory;
+  potentialTier: PotentialTier;
   wordCount: number;
 };
+
+export type PotentialTier = "Low Potential" | "Medium Potential" | "High Potential";
 
 export type AnalysisJobStatus = "queued" | "processing" | "completed";
 
