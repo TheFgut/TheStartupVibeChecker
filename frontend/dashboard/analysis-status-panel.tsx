@@ -15,11 +15,12 @@ export function AnalysisStatusPanel({
   const roundedProgress = Math.round(displayProgress);
   const isAnalyzing = activeJob !== null;
   const isCompleted = activeJob?.status === "completed";
+  const showProgressRing = isAnalyzing && !isCompleted;
   const statusLabel = getStatusLabel(activeJob, isLoadingHistory);
   const statusBody = getStatusBody(activeJob, roundedProgress, isLoadingHistory);
 
   return (
-    <div className="overflow-hidden rounded-[1.75rem] border border-stone-900/10 bg-white/70 p-6">
+    <div className="overflow-hidden rounded-[1.75rem] border border-stone-900/10 bg-white/70 p-6 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]">
       <div className="flex items-center justify-between">
         <span className="text-sm uppercase tracking-[0.28em] text-stone-500">
           Status
@@ -36,12 +37,22 @@ export function AnalysisStatusPanel({
       </div>
 
       <div className="mt-6 flex flex-col gap-6 xl:flex-row xl:items-center">
-        <ProgressRing
-          progress={roundedProgress}
-          state={isCompleted ? "completed" : isAnalyzing ? "running" : "idle"}
-        />
+        <div
+          aria-hidden={!showProgressRing}
+          className={`flex justify-center transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] xl:justify-start ${
+            showProgressRing
+              ? "max-h-44 opacity-100 translate-y-0 xl:w-40 xl:min-w-40 xl:max-w-40 xl:translate-x-0"
+              : "max-h-0 opacity-0 -translate-y-2 xl:w-0 xl:min-w-0 xl:max-w-0 xl:-translate-x-3 xl:translate-y-0"
+          }`}
+        >
+          <ProgressRing progress={roundedProgress} />
+        </div>
 
-        <div className="space-y-3">
+        <div
+          className={`min-w-0 space-y-3 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+            showProgressRing ? "max-w-none xl:translate-x-0" : "max-w-xl"
+          }`}
+        >
           <p className="text-2xl font-semibold tracking-[-0.04em]">{statusLabel}</p>
           <p className="text-sm leading-6 text-stone-600">{statusBody}</p>
 
@@ -69,23 +80,16 @@ export function AnalysisStatusPanel({
 
 type ProgressRingProps = {
   progress: number;
-  state: "idle" | "running" | "completed";
 };
 
-function ProgressRing({ progress, state }: ProgressRingProps) {
+function ProgressRing({ progress }: ProgressRingProps) {
   const normalizedRadius = 52;
   const circumference = 2 * Math.PI * normalizedRadius;
   const dashOffset = circumference - (progress / 100) * circumference;
 
   return (
-    <div className="relative mx-auto h-40 w-40 shrink-0">
-      <div
-        className={`absolute inset-1 rounded-full border border-dashed ${
-          state === "completed"
-            ? "border-emerald-300/80"
-            : "border-amber-300/70"
-        } ${state === "running" ? "animate-spin [animation-duration:4s]" : ""}`}
-      />
+    <div className="relative mx-auto h-40 w-40 shrink-0 transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]">
+      <div className="absolute inset-1 animate-spin rounded-full border border-dashed border-amber-300/70 [animation-duration:4s]" />
       <div className="absolute inset-4 rounded-full bg-[radial-gradient(circle,_rgba(251,191,36,0.22),_transparent_68%)]" />
 
       <svg className="absolute inset-0 -rotate-90" viewBox="0 0 120 120">
@@ -98,9 +102,7 @@ function ProgressRing({ progress, state }: ProgressRingProps) {
           strokeWidth="10"
         />
         <circle
-          className={`transition-[stroke] ${
-            state === "completed" ? "stroke-emerald-500" : "stroke-stone-950"
-          }`}
+          className="stroke-stone-950 transition-[stroke-dashoffset] duration-300 ease-out"
           cx="60"
           cy="60"
           fill="transparent"
@@ -117,7 +119,7 @@ function ProgressRing({ progress, state }: ProgressRingProps) {
           {progress}%
         </span>
         <span className="mt-1 text-xs uppercase tracking-[0.28em] text-stone-500">
-          {state === "completed" ? "Done" : state === "running" ? "Analyzing" : "Idle"}
+          Analyzing
         </span>
       </div>
     </div>
