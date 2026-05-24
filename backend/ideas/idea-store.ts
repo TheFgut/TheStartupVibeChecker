@@ -132,3 +132,12 @@ function getJobProgress(job: StoredAnalysisJob, status: AnalysisJobStatus): numb
 
   return Math.max(2, Math.min(96, Math.round(rawProgress)));
 }
+
+export function resetIdeaStore() {
+  globalThis.__startupVibeCheckerStore = {
+    activeJobId: null,
+    ideas: [],
+    jobs: new Map<string, StoredAnalysisJob>(),
+    queue: []
+  };
+}
